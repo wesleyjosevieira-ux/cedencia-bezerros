@@ -109,14 +109,18 @@
 <aside class="config">
 
   <div class="card">
-    <h2>0. Importar Ficha Financeira (PDF) <span class="badge">novo</span></h2>
+    <h2>0. Importar PDFs (auto-preencher) <span class="badge">novo</span></h2>
     <div class="pdf-upload">
       <input type="file" id="pdfFile" accept="application/pdf" style="display:none">
-      <button class="btn" onclick="document.getElementById('pdfFile').click()">Selecionar PDF da Ficha</button>
-      <p>Padrão Contabilis (3Tecnos) — Prefeitura de Bezerros</p>
+      <input type="file" id="folhaAnalFile" accept="application/pdf" style="display:none">
+      <div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;">
+        <button class="btn" onclick="document.getElementById('pdfFile').click()">Ficha Financeira</button>
+        <button class="btn btn-sec" onclick="document.getElementById('folhaAnalFile').click()">Folha Analítica (Resumo)</button>
+      </div>
+      <p style="margin-top:8px;">Ficha Financeira preenche <strong>verbas mês a mês</strong> • Folha Analítica preenche <strong>alíquotas exatas</strong> (Patronal, Suplementar, Administrativa)</p>
     </div>
-    <div class="upload-log" id="uploadLog">Aguardando ficha financeira...</div>
-    <small class="field-help">As verbas detectadas serão preenchidas na Seção 3 com valores mês a mês. Você poderá marcar/desmarcar incidência previdenciária.</small>
+    <div class="upload-log" id="uploadLog">Aguardando PDFs...</div>
+    <small class="field-help">Recomenda-se carregar primeiro a Folha Analítica (para fixar as alíquotas) e depois a Ficha Financeira (para puxar as verbas).</small>
   </div>
 
   <div class="card">
@@ -144,6 +148,9 @@
     <small style="display:block;margin-bottom:8px;color:var(--muted);font-size:11px">
       Linha amarela = valores mês a mês (vindos do PDF). Caixa ✓ = incide previdenciária.
     </small>
+    <div class="field" style="background:#fff8e1;padding:6px 8px;border-radius:4px;margin-bottom:8px;">
+      <label style="text-transform:none;font-size:12px;color:var(--text);"><input type="checkbox" id="projetar" checked> <strong>Projetar até dezembro</strong> — replica o último mês com dados para os meses futuros (para estimativa anual)</label>
+    </div>
     <div id="verbas"></div>
   </div>
 
@@ -231,9 +238,27 @@
   }
 
   // ---------- VERBAS ----------
+  function getVerbaArray(v) {
+    if (v.modo === 'fixo') return new Array(12).fill(v.valor || 0);
+    const arr = (v.valores || new Array(12).fill(0)).slice();
+    const el = document.getElementById('projetar');
+    const projetar = el ? el.checked : true;
+    if (projetar) {
+      let last = -1;
+      for (let i = 11; i >= 0; i--) {
+        if ((arr[i] || 0) > 0) { last = i; break; }
+      }
+      if (last >= 0 && last < 11) {
+        const val = arr[last];
+        for (let i = last + 1; i < 12; i++) {
+          if (!arr[i] || arr[i] === 0) arr[i] = val;
+        }
+      }
+    }
+    return arr;
+  }
   function getVerbaValor(v, mesIdx) {
-    if (v.modo === 'mensal' && v.valores) return v.valores[mesIdx] || 0;
-    return v.valor || 0;
+    return getVerbaArray(v)[mesIdx] || 0;
   }
   function renderVerbas() {
     const box = document.getElementById('verbas');
@@ -241,11 +266,12 @@
     verbas.forEach((v, i) => {
       const row = document.createElement('div');
       row.className = 'verba-row' + (v.modo === 'mensal' ? ' has-monthly' : '');
-      const totalMensalMed = (v.modo === 'mensal' && v.valores)
-        ? r2(v.valores.reduce((a,b) => a+b, 0) / 12)
+      const arrProj = (v.modo === 'mensal') ? getVerbaArray(v) : null;
+      const totalMensalMed = arrProj
+        ? r2(arrProj.reduce((a,b) => a+b, 0) / 12)
         : (v.valor || 0);
       const valorInput = (v.modo === 'mensal')
-        ? `<input type="text" value="médio: ${fmt0(totalMensalMed)}" disabled title="Mensal: ${v.valores ? v.valores.map(fmt0).join(' / ') : ''}">`
+        ? `<input type="text" value="médio: ${fmt0(totalMensalMed)}" disabled title="Mensal (já projetado): ${arrProj ? arrProj.map(fmt0).join(' / ') : ''}">`
         : `<input type="number" step="0.01" value="${v.valor}" onchange="verbas[${i}].valor=parseFloat(this.value)||0; recalc()">`;
       row.innerHTML = `
         <input type="text" value="${v.desc.replace(/"/g, '&quot;')}" onchange="verbas[${i}].desc=this.value">
@@ -314,27 +340,36 @@
 
     const patronalMensal = baseMensal.map((b, m) => {
       const a = aliquotaMes(m);
-      return r2(b * (a.pat + a.sup) / 100);
+      return r2(b * a.pat / 100);
+    });
+    const suplementarMensal = baseMensal.map((b, m) => {
+      const a = aliquotaMes(m);
+      return r2(b * a.sup / 100);
     });
     const fgtsMensal = baseMensal.map(b => fgtsOn ? r2(b * 0.08) : 0);
 
     const decMensal = baseMensal.map(b => r2(b / 12));
     const patronalDecMensal = decMensal.map((d, m) => {
       const a = aliquotaMes(m);
-      return r2(d * (a.pat + a.sup) / 100);
+      return r2(d * a.pat / 100);
+    });
+    const suplementarDecMensal = decMensal.map((d, m) => {
+      const a = aliquotaMes(m);
+      return r2(d * a.sup / 100);
     });
     const fgtsDecMensal = decMensal.map(d => fgtsOn ? r2(d * 0.08) : 0);
 
     const tercoMensal = baseMensal.map(b => r2(b / 36));
     const fgtsFeriasMensal = tercoMensal.map(t => fgtsOn ? r2(t * 0.08) : 0);
 
-    const encarSocMensal = patronalMensal.map((p, m) => r2(p + fgtsMensal[m]));
-    const provMensal = decMensal.map((d, m) => r2(d + patronalDecMensal[m] + fgtsDecMensal[m] + tercoMensal[m] + fgtsFeriasMensal[m]));
+    const encarSocMensal = patronalMensal.map((p, m) => r2(p + suplementarMensal[m] + fgtsMensal[m]));
+    const provMensal = decMensal.map((d, m) => r2(d + patronalDecMensal[m] + suplementarDecMensal[m] + fgtsDecMensal[m] + tercoMensal[m] + fgtsFeriasMensal[m]));
     const custoMensal = baseTotalMensal.map((rem, m) => r2(rem + encarSocMensal[m] + provMensal[m]));
 
     return {
       baseMensal, baseTotalMensal, remTotalAnual, baseTotalAnual,
-      patronalMensal, fgtsMensal, decMensal, patronalDecMensal, fgtsDecMensal,
+      patronalMensal, suplementarMensal, fgtsMensal,
+      decMensal, patronalDecMensal, suplementarDecMensal, fgtsDecMensal,
       tercoMensal, fgtsFeriasMensal, encarSocMensal, provMensal, custoMensal,
       fgtsOn
     };
@@ -400,17 +435,32 @@
     html += rowMensal('Total REMUNERAÇÃO', c.baseTotalMensal, 'total');
 
     html += `<tr class="section"><td colspan="14">Encargos Sociais</td></tr>`;
-    const patLine = c.patronalMensal.map((v, m) => `${fmt(v)}<br><small style="color:#b97a00">${aliqLabelMes(m)}</small>`);
+    const patLine = c.patronalMensal.map((v, m) => {
+      const a = aliquotaMes(m);
+      return `${fmt(v)}<br><small style="color:#b97a00">${a.pat.toFixed(2)}%${a.override ? '*' : ''}</small>`;
+    });
     const patTotal = r2(c.patronalMensal.reduce((a,b)=>a+b, 0));
-    html += `<tr><td class="lbl">Previdência Patronal (Pat+Supl)</td>` +
+    html += `<tr><td class="lbl">Previdência Patronal</td>` +
       patLine.map(s => `<td class="num">${s}</td>`).join('') +
       `<td class="num">${fmt(patTotal)}</td></tr>`;
+    const hasSupl = c.suplementarMensal.some(v => v > 0);
+    if (hasSupl) {
+      const supLine = c.suplementarMensal.map((v, m) => {
+        const a = aliquotaMes(m);
+        return `${fmt(v)}<br><small style="color:#b97a00">${a.sup.toFixed(2)}%${a.override ? '*' : ''}</small>`;
+      });
+      const supTotal = r2(c.suplementarMensal.reduce((a,b)=>a+b, 0));
+      html += `<tr><td class="lbl">Previdência Suplementar</td>` +
+        supLine.map(s => `<td class="num">${s}</td>`).join('') +
+        `<td class="num">${fmt(supTotal)}</td></tr>`;
+    }
     if (c.fgtsOn) html += rowMensal('FGTS (8%)', c.fgtsMensal);
     html += rowMensal('Total ENCARGOS SOCIAIS', c.encarSocMensal, 'total');
 
     html += `<tr class="section"><td colspan="14">Provisões</td></tr>`;
     html += rowMensal('13º Salário (1/12)', c.decMensal);
     html += rowMensal('Previdência Patronal sobre 13º', c.patronalDecMensal);
+    if (hasSupl) html += rowMensal('Previdência Suplementar sobre 13º', c.suplementarDecMensal);
     if (c.fgtsOn) html += rowMensal('FGTS 13º', c.fgtsDecMensal);
     html += rowMensal('Adicional 1/3 de Férias (provisão)', c.tercoMensal);
     if (c.fgtsOn) html += rowMensal('FGTS Férias', c.fgtsFeriasMensal);
@@ -485,14 +535,17 @@
     });
     aoa.push(['Total REMUNERAÇÃO', ...c.baseTotalMensal, tot(c.baseTotalMensal)]);
 
+    const hasSuplX = c.suplementarMensal.some(v => v > 0);
     aoa.push(['ENCARGOS SOCIAIS']);
     aoa.push(['Previdência Patronal', ...c.patronalMensal, tot(c.patronalMensal)]);
+    if (hasSuplX) aoa.push(['Previdência Suplementar', ...c.suplementarMensal, tot(c.suplementarMensal)]);
     if (c.fgtsOn) aoa.push(['FGTS (8%)', ...c.fgtsMensal, tot(c.fgtsMensal)]);
     aoa.push(['Total ENCARGOS SOCIAIS', ...c.encarSocMensal, tot(c.encarSocMensal)]);
 
     aoa.push(['PROVISÕES']);
     aoa.push(['13º Salário (1/12)', ...c.decMensal, tot(c.decMensal)]);
     aoa.push(['Patronal sobre 13º', ...c.patronalDecMensal, tot(c.patronalDecMensal)]);
+    if (hasSuplX) aoa.push(['Suplementar sobre 13º', ...c.suplementarDecMensal, tot(c.suplementarDecMensal)]);
     if (c.fgtsOn) aoa.push(['FGTS 13º', ...c.fgtsDecMensal, tot(c.fgtsDecMensal)]);
     aoa.push(['Adicional 1/3 de Férias (provisão)', ...c.tercoMensal, tot(c.tercoMensal)]);
     if (c.fgtsOn) aoa.push(['FGTS Férias', ...c.fgtsFeriasMensal, tot(c.fgtsFeriasMensal)]);
@@ -549,6 +602,89 @@
       logPdf('ERRO: ' + err.message, 'err');
     }
   });
+
+  // ---------- PARSER DA FOLHA ANALÍTICA (RESUMO) ----------
+  async function lerPdfLinhas(file) {
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    const allLines = [];
+    for (let p = 1; p <= pdf.numPages; p++) {
+      const page = await pdf.getPage(p);
+      const tc = await page.getTextContent();
+      const rows = {};
+      tc.items.forEach(it => {
+        const y = Math.round(it.transform[5]);
+        if (!rows[y]) rows[y] = [];
+        rows[y].push({ x: it.transform[4], str: it.str });
+      });
+      const sortedY = Object.keys(rows).map(Number).sort((a,b) => b - a);
+      sortedY.forEach(y => {
+        const line = rows[y].sort((a,b) => a.x - b.x).map(it => it.str).join(' ').replace(/\s+/g, ' ').trim();
+        if (line) allLines.push(line);
+      });
+    }
+    return allLines;
+  }
+
+  document.getElementById('folhaAnalFile').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    logPdf('Lendo Folha Analítica: ' + file.name, 'ok');
+    try {
+      const linhas = await lerPdfLinhas(file);
+      parsearFolhaAnalitica(linhas);
+    } catch (err) {
+      logPdf('ERRO Folha Analítica: ' + err.message, 'err');
+    }
+  });
+
+  function parsearFolhaAnalitica(linhas) {
+    const txt = linhas.join('\n');
+    // Padrão Contabilis: "Contribuição Patronal: 1.033,25 (19.55%)"
+    const reBase = /Base de Contribui[çc][ãa]o (?:da Empresa)?:?\s*([\d\.,]+)/i;
+    const rePat  = /Contribui[çc][ãa]o Patronal:\s*[\d\.,]+\s*\(([\d\.,]+)\s*%\)/i;
+    const reSup  = /Contribui[çc][ãa]o Patronal Suplementar:\s*[\d\.,]+\s*\(([\d\.,]+)\s*%\)/i;
+    const reAdm  = /Contribui[çc][ãa]o Administrativa:\s*[\d\.,]+\s*\(([\d\.,]+)\s*%\)/i;
+    const reSeg  = /Contribui[çc][ãa]o dos Segurados:\s*([\d\.,]+)/i;
+
+    const mPat = txt.match(rePat);
+    const mSup = txt.match(reSup);
+    const mAdm = txt.match(reAdm);
+    const mBase = txt.match(reBase);
+    const mSeg = txt.match(reSeg);
+
+    let found = false;
+    if (mPat) {
+      const pat = parseFloat(mPat[1].replace(',', '.'));
+      document.getElementById('aliqPatronal').value = pat.toFixed(2);
+      logPdf(`Patronal: ${pat.toFixed(2)}%`, 'ok');
+      found = true;
+    }
+    if (mSup) {
+      const sup = parseFloat(mSup[1].replace(',', '.'));
+      document.getElementById('aliqSupl').value = sup.toFixed(2);
+      logPdf(`Suplementar: ${sup.toFixed(2)}%`, 'ok');
+      found = true;
+    }
+    if (mAdm) {
+      const adm = parseFloat(mAdm[1].replace(',', '.'));
+      if (adm > 0) logPdf(`Administrativa detectada: ${adm.toFixed(2)}% (some à patronal manualmente, se aplicável)`, 'warn');
+    }
+    if (mBase && mSeg) {
+      const base = parseBR(mBase[1]);
+      const seg  = parseBR(mSeg[1]);
+      if (base > 0) {
+        const segPct = (seg / base) * 100;
+        document.getElementById('aliqSegurado').value = segPct.toFixed(2);
+        logPdf(`Segurado: ${segPct.toFixed(2)}% (base R$ ${fmt(base)} / cont. R$ ${fmt(seg)})`, 'ok');
+        found = true;
+      }
+    }
+    if (!found) {
+      logPdf('Não encontrei as alíquotas no PDF. Verifique se é a "Folha Analítica (Resumo)".', 'warn');
+    }
+    recalc();
+  }
 
   function parsearFichaFinanceira(linhas) {
     const txt = linhas.join('\n');
