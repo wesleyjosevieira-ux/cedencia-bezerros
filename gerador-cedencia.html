@@ -641,38 +641,40 @@
   function parsearFolhaAnalitica(linhas) {
     const txt = linhas.join('\n');
     // Padrão Contabilis: "Contribuição Patronal: 1.033,25 (19.55%)"
-    const reBase = /Base de Contribui[çc][ãa]o (?:da Empresa)?:?\s*([\d\.,]+)/i;
-    const rePat  = /Contribui[çc][ãa]o Patronal:\s*[\d\.,]+\s*\(([\d\.,]+)\s*%\)/i;
-    const reSup  = /Contribui[çc][ãa]o Patronal Suplementar:\s*[\d\.,]+\s*\(([\d\.,]+)\s*%\)/i;
-    const reAdm  = /Contribui[çc][ãa]o Administrativa:\s*[\d\.,]+\s*\(([\d\.,]+)\s*%\)/i;
-    const reSeg  = /Contribui[çc][ãa]o dos Segurados:\s*([\d\.,]+)/i;
+    // A Folha tem 2 blocos: resumo do servidor (geralmente 0%) e RESUMO GERAL (alíquota real).
+    // Pegamos o MAIOR valor entre as ocorrências, que corresponde ao Resumo Geral.
+    const rePat = /Contribui[çc][ãa]o Patronal:\s*[\d\.,]+\s*\(([\d\.,]+)\s*%\)/gi;
+    const reSup = /Contribui[çc][ãa]o Patronal Suplementar:\s*[\d\.,]+\s*\(([\d\.,]+)\s*%\)/gi;
+    const reAdm = /Contribui[çc][ãa]o Administrativa:\s*[\d\.,]+\s*\(([\d\.,]+)\s*%\)/gi;
+    const reBase = /Base de Contribui[çc][ãa]o (?:da Empresa)?:?\s*([\d\.,]+)/gi;
+    const reSeg = /Contribui[çc][ãa]o dos Segurados:\s*([\d\.,]+)/gi;
 
-    const mPat = txt.match(rePat);
-    const mSup = txt.match(reSup);
-    const mAdm = txt.match(reAdm);
-    const mBase = txt.match(reBase);
-    const mSeg = txt.match(reSeg);
+    const allPat = [...txt.matchAll(rePat)].map(m => parseFloat(m[1].replace(',', '.')));
+    const allSup = [...txt.matchAll(reSup)].map(m => parseFloat(m[1].replace(',', '.')));
+    const allAdm = [...txt.matchAll(reAdm)].map(m => parseFloat(m[1].replace(',', '.')));
+    const allBase = [...txt.matchAll(reBase)].map(m => parseBR(m[1]));
+    const allSeg = [...txt.matchAll(reSeg)].map(m => parseBR(m[1]));
 
     let found = false;
-    if (mPat) {
-      const pat = parseFloat(mPat[1].replace(',', '.'));
+    if (allPat.length) {
+      const pat = Math.max(...allPat);
       document.getElementById('aliqPatronal').value = pat.toFixed(2);
-      logPdf(`Patronal: ${pat.toFixed(2)}%`, 'ok');
+      logPdf(`Patronal: ${pat.toFixed(2)}% (de ${allPat.length} ocorr.: ${allPat.map(v => v.toFixed(2) + '%').join(', ')})`, 'ok');
       found = true;
     }
-    if (mSup) {
-      const sup = parseFloat(mSup[1].replace(',', '.'));
+    if (allSup.length) {
+      const sup = Math.max(...allSup);
       document.getElementById('aliqSupl').value = sup.toFixed(2);
       logPdf(`Suplementar: ${sup.toFixed(2)}%`, 'ok');
       found = true;
     }
-    if (mAdm) {
-      const adm = parseFloat(mAdm[1].replace(',', '.'));
+    if (allAdm.length) {
+      const adm = Math.max(...allAdm);
       if (adm > 0) logPdf(`Administrativa detectada: ${adm.toFixed(2)}% (some à patronal manualmente, se aplicável)`, 'warn');
     }
-    if (mBase && mSeg) {
-      const base = parseBR(mBase[1]);
-      const seg  = parseBR(mSeg[1]);
+    if (allBase.length && allSeg.length) {
+      const base = Math.max(...allBase);
+      const seg = Math.max(...allSeg);
       if (base > 0) {
         const segPct = (seg / base) * 100;
         document.getElementById('aliqSegurado').value = segPct.toFixed(2);
