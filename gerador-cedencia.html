@@ -35,7 +35,9 @@
   .field input:focus, .field select:focus { outline: 2px solid var(--pmb-accent); border-color: var(--pmb-accent); }
   .row2 { display:grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .row3 { display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
-  .verba-row { display:grid; grid-template-columns: 1fr 100px 28px 32px; gap:4px; margin-bottom:5px; align-items:center; }
+  .verba-row { display:grid; grid-template-columns: 1fr 90px 26px 26px 32px; gap:3px; margin-bottom:5px; align-items:center; }
+  .verba-row.hdr { font-size: 9px; color: var(--muted); text-transform:uppercase; letter-spacing: .3px; margin-bottom:2px; }
+  .verba-row.hdr > div { text-align:center; }
   .verba-row input[type=text] { font-size:12px; padding:4px 6px; }
   .verba-row input[type=number] { font-size:12px; padding:4px 6px; text-align:right; }
   .verba-row .toggle-inc { width: 22px; height: 22px; cursor:pointer; }
@@ -150,8 +152,9 @@
     <h2>3. Verbas Remuneratórias <button class="btn-mini" onclick="addVerba()">+ Verba</button></h2>
     <small style="display:block;margin-bottom:8px;color:var(--muted);font-size:11px">
       Linha amarela = valores mês a mês (vindos do PDF).<br>
-      <strong>✓</strong> = incide previdenciária (mantém a verba na estimativa, só tira do patronal).<br>
-      <strong style="color:#c0392b">×</strong> = <strong>REMOVE</strong> a verba da estimativa (use para eventos eventuais, não fixos).
+      <strong>📅</strong> = projetar até dez (marque em verbas fixas; desmarque em eventuais como retroativo, restituição, hora extra pontual).<br>
+      <strong>✓</strong> = incide previdenciária (desmarque em verbas que acompanham salário mas não incidem RPPS, como certos FGs).<br>
+      <strong style="color:#c0392b">×</strong> = REMOVE a verba da estimativa.
     </small>
     <div class="field" style="background:#fff8e1;padding:6px 8px;border-radius:4px;margin-bottom:8px;">
       <label style="text-transform:none;font-size:12px;color:var(--text);"><input type="checkbox" id="projetar" checked> <strong>Projetar até dezembro</strong> — replica o último mês com dados para os meses futuros (para estimativa anual)</label>
@@ -226,7 +229,7 @@
 
   // ---------- STATE ----------
   let verbas = [
-    { desc: 'Vencimento (Horas Aulas H)', incide: true, modo: 'fixo', valor: 5027.58, valores: null }
+    { desc: 'Vencimento (Horas Aulas H)', incide: true, projetar: true, modo: 'fixo', valor: 5027.58, valores: null }
   ];
   let overrides = [];
 
@@ -247,8 +250,9 @@
     if (v.modo === 'fixo') return new Array(12).fill(v.valor || 0);
     const arr = (v.valores || new Array(12).fill(0)).slice();
     const el = document.getElementById('projetar');
-    const projetar = el ? el.checked : true;
-    if (projetar) {
+    const projetarGlobal = el ? el.checked : true;
+    const projetarEsta = v.projetar !== false;
+    if (projetarGlobal && projetarEsta) {
       let last = -1;
       for (let i = 11; i >= 0; i--) {
         if ((arr[i] || 0) > 0) { last = i; break; }
@@ -268,6 +272,12 @@
   function renderVerbas() {
     const box = document.getElementById('verbas');
     box.innerHTML = '';
+    if (verbas.length > 0) {
+      const hdr = document.createElement('div');
+      hdr.className = 'verba-row hdr';
+      hdr.innerHTML = `<div style="text-align:left">Descrição</div><div>Valor</div><div title="Projetar até dezembro">📅</div><div title="Incide previdência">✓</div><div>Remover</div>`;
+      box.appendChild(hdr);
+    }
     verbas.forEach((v, i) => {
       const row = document.createElement('div');
       row.className = 'verba-row' + (v.modo === 'mensal' ? ' has-monthly' : '') + (v.incide ? '' : ' no-incide');
@@ -281,6 +291,7 @@
       row.innerHTML = `
         <input type="text" value="${v.desc.replace(/"/g, '&quot;')}" onchange="verbas[${i}].desc=this.value">
         ${valorInput}
+        <input type="checkbox" class="toggle-inc" ${(v.projetar !== false) ? 'checked' : ''} onchange="verbas[${i}].projetar=this.checked; recalc()" title="Projetar valores até dezembro? (marque para verbas fixas/recorrentes; desmarque para verbas eventuais como retroativos, restituições, horas extra pontuais)">
         <input type="checkbox" class="toggle-inc" ${v.incide ? 'checked' : ''} onchange="verbas[${i}].incide=this.checked; recalc()" title="Incide previdenciária? (desmarcar NÃO remove a verba, só tira do cálculo da Patronal)">
         <button class="btn-remove" onclick="verbas.splice(${i},1); renderVerbas(); recalc()" title="REMOVER esta verba da estimativa">×</button>
       `;
@@ -288,7 +299,7 @@
     });
   }
   function addVerba() {
-    verbas.push({ desc: 'Nova verba', incide: true, modo: 'fixo', valor: 0, valores: null });
+    verbas.push({ desc: 'Nova verba', incide: true, projetar: true, modo: 'fixo', valor: 0, valores: null });
     renderVerbas(); recalc();
   }
 
@@ -724,16 +735,22 @@
         let desc = linha.substring(0, primNum).trim();
         desc = desc.replace(/^\d{4,6}\s+/, '');
         const valores = nums.slice(0, 12).map(parseBR);
-        const incide = !/(IRRF|IPREBE|CONSIG|RET PISO|RET\.|RETROAT|FÉRIAS|FERIAS|^13)/i.test(desc);
+        const incide = !/(IRRF|IPREBE|CONSIG|RET PISO|RET\.|RETROAT|FÉRIAS|FERIAS|^13|HORA[S]? EXTRA|RESTITUI|ABONO)/i.test(desc);
         if (/13[ºº°]?\s*SAL/i.test(desc)) continue;
-        novasVerbas.push({ desc, incide, modo: 'mensal', valor: 0, valores });
+        // Heurística: verbas com valor em menos de 3 meses são eventuais (não projetar)
+        const nonZeroMonths = valores.filter(v => v > 0).length;
+        const projetar = nonZeroMonths >= 3;
+        novasVerbas.push({ desc, incide, projetar, modo: 'mensal', valor: 0, valores });
       }
     }
 
     if (novasVerbas.length) {
       verbas = novasVerbas;
       logPdf(`${novasVerbas.length} verba(s) detectada(s):`, 'ok');
-      novasVerbas.forEach(v => logPdf(`  • ${v.desc} ${v.incide ? '[INCIDE]' : '[s/inc]'}`));
+      novasVerbas.forEach(v => {
+        const meses = (v.valores || []).filter(x => x > 0).length;
+        logPdf(`  • ${v.desc} ${v.incide ? '[INCIDE]' : '[s/inc]'} ${v.projetar ? '[PROJETA]' : '[eventual]'} (${meses}m)`);
+      });
     } else {
       logPdf('Nenhuma verba detectada no PDF. Confira se é uma Ficha Financeira sintética.', 'warn');
     }
