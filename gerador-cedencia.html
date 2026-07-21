@@ -45,9 +45,13 @@
   .verba-row.no-incide input[type=text]:first-child { color: #999; text-decoration: line-through; }
   .verba-row .btn-remove { background:#fee; border:1px solid #c0392b; color: #c0392b; cursor:pointer; font-size:14px; padding:2px 4px; border-radius:4px; font-weight:bold; }
   .verba-row .btn-remove:hover { background: #c0392b; color: #fff; }
-  .override-row { display:grid; grid-template-columns: 80px 1fr 1fr 1fr 28px; gap:4px; margin-bottom:4px; align-items:center; }
-  .override-row input { font-size:11px; padding:3px 5px; }
-  .override-row select { font-size:11px; padding:3px 5px; }
+  .override-row { display:grid; grid-template-columns: 72px 55px 55px 55px 34px; gap:3px; margin-bottom:4px; align-items:center; }
+  .override-row.hdr { font-size: 9px; color: var(--muted); text-transform:uppercase; letter-spacing: .3px; margin-bottom:2px; }
+  .override-row.hdr > div { text-align:center; }
+  .override-row input { font-size:11px; padding:3px 5px; text-align:right; min-width: 0; }
+  .override-row select { font-size:11px; padding:3px 5px; min-width: 0; }
+  .override-row .btn-remove { background:#fee; border:1px solid #c0392b; color: #c0392b; cursor:pointer; font-size:14px; padding:2px 4px; border-radius:4px; font-weight:bold; }
+  .override-row .btn-remove:hover { background: #c0392b; color: #fff; }
   .btn { background: var(--pmb-primary); color:#fff; border:0; padding:8px 14px; border-radius: 5px; cursor:pointer; font-size: 13px; font-weight:600; }
   .btn:hover { background:#0d5d36; }
   .btn-sec { background:#fff; border:1px solid var(--pmb-primary); color: var(--pmb-primary); }
@@ -307,16 +311,22 @@
   function renderOverrides() {
     const box = document.getElementById('overrides');
     box.innerHTML = '';
+    if (overrides.length > 0) {
+      const hdr = document.createElement('div');
+      hdr.className = 'override-row hdr';
+      hdr.innerHTML = `<div style="text-align:left">Mês</div><div>Seg %</div><div>Pat %</div><div>Sup %</div><div>Remover</div>`;
+      box.appendChild(hdr);
+    }
     overrides.forEach((o, i) => {
       const row = document.createElement('div');
       row.className = 'override-row';
       const opts = mesesFull.map((m, idx) => `<option value="${idx}" ${idx === o.mes ? 'selected' : ''}>${m}</option>`).join('');
       row.innerHTML = `
         <select onchange="overrides[${i}].mes=parseInt(this.value); recalc()">${opts}</select>
-        <input type="number" step="0.01" value="${o.segurado}" placeholder="Seg" onchange="overrides[${i}].segurado=parseFloat(this.value)||0; recalc()">
-        <input type="number" step="0.01" value="${o.patronal}" placeholder="Pat" onchange="overrides[${i}].patronal=parseFloat(this.value)||0; recalc()">
-        <input type="number" step="0.01" value="${o.suplementar}" placeholder="Sup" onchange="overrides[${i}].suplementar=parseFloat(this.value)||0; recalc()">
-        <button class="btn-x" onclick="overrides.splice(${i},1); renderOverrides(); recalc()">×</button>
+        <input type="number" step="0.01" value="${o.segurado}" onchange="overrides[${i}].segurado=parseFloat(this.value)||0; recalc()">
+        <input type="number" step="0.01" value="${o.patronal}" onchange="overrides[${i}].patronal=parseFloat(this.value)||0; recalc()">
+        <input type="number" step="0.01" value="${o.suplementar}" onchange="overrides[${i}].suplementar=parseFloat(this.value)||0; recalc()">
+        <button class="btn-remove" onclick="overrides.splice(${i},1); renderOverrides(); recalc()" title="Remover este override">×</button>
       `;
       box.appendChild(row);
     });
