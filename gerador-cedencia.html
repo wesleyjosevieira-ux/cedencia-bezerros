@@ -189,6 +189,12 @@
       </div>
     </div>
 
+    <div class="field" style="margin-top:10px;background:#f6fbf7;padding:6px 8px;border-radius:4px;">
+      <label>13º Salário Anual (opcional)</label>
+      <input type="number" id="dec13Anual" step="0.01" value="0" placeholder="0 = calcular automático pela base mensal">
+      <div class="field-help">Se preencher, usa este valor como total anual do 13º (dividido por 12). Preenche sozinho ao importar a ficha, com o valor real pago no ano.</div>
+    </div>
+
     <details style="margin-top:10px;">
       <summary>Overrides por mês (para revisões retroativas)</summary>
       <small style="display:block;margin-bottom:6px;color:var(--muted);font-size:11px">
@@ -236,6 +242,7 @@
     { desc: 'Vencimento (Horas Aulas H)', incide: true, projetar: true, modo: 'fixo', valor: 5027.58, valores: null }
   ];
   let overrides = [];
+  let dec13Anual = 0; // Se > 0, força este valor como 13º total anual (do bloco "13° - PROVENTOS" da ficha)
 
   // ---------- UTILS ----------
   function fmt(v) {
@@ -374,7 +381,12 @@
     });
     const fgtsMensal = baseMensal.map(b => fgtsOn ? r2(b * 0.08) : 0);
 
-    const decMensal = baseMensal.map(b => r2(b / 12));
+    // 13º: se dec13Anual > 0, usa o valor da ficha (dividido por 12).
+    // Caso contrário, calcula como 1/12 da base mensal (média mensal).
+    const dec13AnualInput = parseFloat(document.getElementById('dec13Anual')?.value) || 0;
+    const decMensal = dec13AnualInput > 0
+      ? new Array(12).fill(r2(dec13AnualInput / 12))
+      : baseMensal.map(b => r2(b / 12));
     const patronalDecMensal = decMensal.map((d, m) => {
       const a = aliquotaMes(m);
       return r2(d * a.pat / 100);
@@ -734,10 +746,24 @@
     // Verbas: bloco PROVENTOS
     const novasVerbas = [];
     let inProventos = false;
+    let in13 = false;
+    let dec13Total = 0;
     const numPattern = /(\d{1,3}(?:\.\d{3})*,\d{2}|0,00)/g;
     for (const linha of linhas) {
-      if (/PROVENTOS/i.test(linha)) { inProventos = true; continue; }
-      if (inProventos && (/SubTotal/i.test(linha) || /DESCONTOS/i.test(linha) || /13[°º]\s*-\s*PROVENTOS/i.test(linha))) { inProventos = false; continue; }
+      // Detecta bloco "13° - PROVENTOS" para capturar o total real do 13º
+      if (/13[°º]\s*-\s*PROVENTOS/i.test(linha)) { in13 = true; inProventos = false; continue; }
+      if (in13 && (/13[°º]\s*-\s*DESCONTOS/i.test(linha) || /Base Previd/i.test(linha))) { in13 = false; continue; }
+      if (in13) {
+        // Procurar SubTotal ou linha "13º SALÁRIO" com valores mensais + total
+        const nums = linha.match(numPattern);
+        if (nums && nums.length >= 13) {
+          const totalCandidato = parseBR(nums[12]);
+          if (totalCandidato > dec13Total) dec13Total = totalCandidato;
+        }
+        continue;
+      }
+      if (/^PROVENTOS/i.test(linha) || (/PROVENTOS/i.test(linha) && !/13/i.test(linha))) { inProventos = true; continue; }
+      if (inProventos && (/SubTotal/i.test(linha) || /DESCONTOS/i.test(linha))) { inProventos = false; continue; }
       if (!inProventos) continue;
       const nums = linha.match(numPattern);
       if (nums && nums.length >= 13) {
@@ -763,6 +789,10 @@
       });
     } else {
       logPdf('Nenhuma verba detectada no PDF. Confira se é uma Ficha Financeira sintética.', 'warn');
+    }
+    if (dec13Total > 0) {
+      document.getElementById('dec13Anual').value = dec13Total.toFixed(2);
+      logPdf(`13º Salário Anual (real da ficha): R$ ${fmt(dec13Total)}`, 'ok');
     }
     recalc();
   }
